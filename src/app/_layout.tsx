@@ -1,4 +1,5 @@
 import { ThemeProvider } from 'expo-router';
+import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 
 import { PilaRaiz } from '../components/PilaRaiz';
@@ -11,6 +12,7 @@ export const unstable_settings = {
   anchor: '(tabs)',
 };
 
+SplashScreen.preventAutoHideAsync();
 configurarNotificaciones();
 
 export default function LayoutRaiz() {

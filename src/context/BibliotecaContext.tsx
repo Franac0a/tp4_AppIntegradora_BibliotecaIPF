@@ -12,18 +12,21 @@ import {
 import {
   CANTIDAD_RECIENTES,
   CREDENCIALES_PERSONAL,
+  DEMORA_GUARDADO_MS,
   DIAS_PRESTAMO,
   NOMBRE_USUARIO,
 } from '../constants/biblioteca';
 import { ESPERAS_INICIALES } from '../data/libros';
 import { Cola } from '../estructuras/Cola';
 import { Pila } from '../estructuras/Pila';
+import { cargarEstado, guardarEstado } from '../lib/almacenamiento';
 import { buscarPorIsbn } from '../lib/catalogo';
 import { sumarDias } from '../lib/fechas';
 import {
   avisarLibroDisponible,
   cancelarRecordatorio,
   esDatosNotificacion,
+  obtenerIdsProgramados,
   programarRecordatorio,
 } from '../lib/notificaciones';
 import type { Aviso, Prestamo, ResultadoReserva } from '../types';
@@ -31,6 +34,7 @@ import type { Aviso, Prestamo, ResultadoReserva } from '../types';
 type Esperas = Record<string, Cola<string>>;
 
 export type BibliotecaContextValue = {
+  listo: boolean;
   prestamos: Prestamo[];
   avisos: Aviso[];
   recientes: string[];
@@ -54,12 +58,38 @@ export type BibliotecaContextValue = {
 
 export const BibliotecaContext = createContext<BibliotecaContextValue | null>(null);
 
-function crearEsperasIniciales(): Esperas {
+function crearEsperas(listas: Record<string, string[]>): Esperas {
   const esperas: Esperas = {};
-  Object.entries(ESPERAS_INICIALES).forEach(([isbn, personas]) => {
+  Object.entries(listas).forEach(([isbn, personas]) => {
     esperas[isbn] = Cola.desde(personas);
   });
   return esperas;
+}
+
+function crearEsperasIniciales(): Esperas {
+  return crearEsperas(ESPERAS_INICIALES);
+}
+
+function esperasAListas(esperas: Esperas): Record<string, string[]> {
+  const listas: Record<string, string[]> = {};
+  Object.entries(esperas).forEach(([isbn, cola]) => {
+    listas[isbn] = cola.aArray();
+  });
+  return listas;
+}
+
+// Un recordatorio que ya llegó (o que el sistema descartó) no debe seguir figurando como activo.
+async function reconciliarRecordatorios(prestamos: Prestamo[]): Promise<Prestamo[]> {
+  try {
+    const programados = await obtenerIdsProgramados();
+    return prestamos.map((p) =>
+      p.recordatorioId && !programados.includes(p.recordatorioId)
+        ? { ...p, recordatorioId: null }
+        : p,
+    );
+  } catch {
+    return prestamos;
+  }
 }
 
 function crearId(): string {
@@ -76,6 +106,48 @@ export function BibliotecaProvider({ children }: Props) {
   const [vistos, setVistos] = useState<Pila<string>>(() => new Pila<string>());
   const [avisos, setAvisos] = useState<Aviso[]>([]);
   const [sesionIniciada, setSesionIniciada] = useState(false);
+  // Mientras se lee lo guardado, la app sigue en el splash: nunca se ve "vacía".
+  const [listo, setListo] = useState(false);
+
+  useEffect(() => {
+    let cancelado = false;
+    async function hidratar() {
+      const guardado = await cargarEstado();
+      if (guardado) {
+        const prestamosGuardados = await reconciliarRecordatorios(guardado.prestamos);
+        if (cancelado) {
+          return;
+        }
+        setPrestamos(prestamosGuardados);
+        setVistos(Pila.desde(guardado.recientes));
+        setEsperas(crearEsperas(guardado.esperas));
+        setAvisos(guardado.avisos);
+      }
+      if (!cancelado) {
+        setListo(true);
+      }
+    }
+    hidratar();
+    return () => {
+      cancelado = true;
+    };
+  }, []);
+
+  // La sesión del personal no se guarda: al reabrir la app hay que volver a ingresar.
+  useEffect(() => {
+    if (!listo) {
+      return;
+    }
+    const temporizador = setTimeout(() => {
+      guardarEstado({
+        prestamos,
+        recientes: vistos.aArray(),
+        esperas: esperasAListas(esperas),
+        avisos,
+      });
+    }, DEMORA_GUARDADO_MS);
+    return () => clearTimeout(temporizador);
+  }, [listo, prestamos, vistos, esperas, avisos]);
 
   // Último valor de préstamos, para consultarlo después de un await.
   const prestamosRef = useRef(prestamos);
@@ -272,6 +344,7 @@ export function BibliotecaProvider({ children }: Props) {
 
   const value = useMemo<BibliotecaContextValue>(
     () => ({
+      listo,
       prestamos,
       avisos,
       recientes,
@@ -293,6 +366,7 @@ export function BibliotecaProvider({ children }: Props) {
       cerrarSesion,
     }),
     [
+      listo,
       prestamos,
       avisos,
       recientes,
