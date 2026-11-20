@@ -150,6 +150,8 @@ Test Suites: 2 passed, 2 total
 Tests:       11 passed, 11 total
 ```
 
-## Capturas
+## Video de demostración
 
-> Pendiente: agregar en `docs/capturas/` las capturas del teléfono (Catálogo cargando, con error y con datos; buscador; detalle inexistente; reserva con y sin ejemplares; escáner en sus cuatro estados; notificación recibida; mostrador antes y después de «Entregar al siguiente»; 404).
+En lugar de capturas, el funcionamiento de la app se muestra en un video grabado en el teléfono (1 min 20 s):
+
+[▶ Ver el video de demostración](docs/demo-biblioteca-ipf.mp4)
